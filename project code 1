@@ -1,0 +1,188 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from numpy.fft import fftn, ifftn, fftshift, ifftshift, fftfreq
+import time
+import os
+
+# -------------------- user parameters --------------------
+# Grid and domain
+Nx = 256          # try 1024, or 2048 if you have RAM/CPU
+Ny = Nx
+Lx = 100.0
+Ly = Lx
+dx = Lx / Nx
+dy = Ly / Ny
+
+# Physics params
+F = 1.0            # F parameter in the notes (choose appropriately)
+d2 = 1.0           # not used here directly, only in derivation
+Dbar = 1.0         # base depth/density
+
+# Time stepping
+dt = 0.002         # time step (tune smaller if needed)
+tmax = 5.0
+nsteps = int(np.round(tmax / dt))
+nout = max(1, nsteps // 200)   # how often to save/plot
+
+# Initial condition params
+A0 = 1.0           # base amplitude for plane wave or gaussian
+noise_amp = 1e-3   # random noise amplitude
+kx0 = 0.0          # plane-wave wavenumber
+ky0 = 0.0
+
+# Bathymetry choice: 'flat', 'gauss', 'ridge', 'random'
+bathymetry_type = 'flat'
+# gaussian bump parameters
+A_bump = 2.0
+sigma = 5.0
+x0 = 0.5 * Lx
+y0 = 0.5 * Ly
+# ridge params
+m_ridge = 4
+A_ridge = 0.5
+
+# dealiasing: True to apply 2/3 rule spectral filter
+dealias = True
+
+# output folder
+outdir = "nls2d_out"
+os.makedirs(outdir, exist_ok=True)
+
+# -------------------- grid setup --------------------
+x = np.linspace(0, Lx, Nx, endpoint=False)
+y = np.linspace(0, Ly, Ny, endpoint=False)
+X, Y = np.meshgrid(x, y, indexing='xy')
+
+# wavenumbers for FFT: use physical k = 2π * freq
+kx = 2.0*np.pi * fftfreq(Nx, d=dx)
+ky = 2.0*np.pi * fftfreq(Ny, d=dy)
+KX, KY = np.meshgrid(kx, ky, indexing='xy')
+K2 = KX**2 + KY**2
+
+# precompute linear propagator in k-space for full dt
+L_prop = np.exp(-1j * K2 * dt)   # for full-step
+L_prop_half = np.exp(-1j * K2 * (dt/1.0))  # unused; keep for reference
+
+# optional de-alias filter (2/3 rule)
+if dealias:
+    kx_cut = np.max(np.abs(kx)) * 2.0/3.0
+    ky_cut = np.max(np.abs(ky)) * 2.0/3.0
+    filter_mask = (np.abs(KX) <= kx_cut) & (np.abs(KY) <= ky_cut)
+else:
+    filter_mask = np.ones_like(K2, dtype=bool)
+
+# -------------------- bathymetry D0(x,y) --------------------
+if bathymetry_type == 'flat':
+    D0 = Dbar * np.ones_like(X)
+elif bathymetry_type == 'gauss':
+    D0 = Dbar + A_bump * np.exp(-((X-x0)**2 + (Y-y0)**2) / (2.0*sigma**2))
+elif bathymetry_type == 'ridge':
+    D0 = Dbar + A_ridge * np.cos(2.0*np.pi*m_ridge*X/Lx)
+elif bathymetry_type == 'random':
+    rng = np.random.default_rng(1)
+    # low-pass random field
+    randk = rng.normal(size=(Ny,Nx)) + 1j*rng.normal(size=(Ny,Nx))
+    randk = randk * np.exp(-0.5*(K2/(2*np.pi/5.0)**2))  # low-pass
+    rand = np.real(ifftn(randk))
+    D0 = Dbar + 0.2 * (rand - rand.mean())
+else:
+    raise ValueError("unknown bathymetry type")
+
+# scaled potential factor for nonlinear step
+coeff = 2.0 / F
+
+# -------------------- initial condition --------------------
+# plane wave + small noise (modulational instability)
+phase = np.exp(1j * (kx0 * X + ky0 * Y))
+rng = np.random.default_rng(12345)
+noise = noise_amp * (rng.normal(size=(Ny,Nx)) + 1j*rng.normal(size=(Ny,Nx)))
+psi0 = A0 * (1.0 + noise) * phase
+
+# alternatively: gaussian initial pulse
+# psi0 = A0 * np.exp(-(((X-x0)**2 + (Y-y0)**2)/(2.0*sigma**2))) * np.exp(1j*(kx0*X + ky0*Y))
+
+psi = psi0.copy()
+
+# diagnostics
+mass0 = np.sum(np.abs(psi)**2) * dx * dy
+print("Initial mass:", mass0)
+
+# -------------------- helper: nonlinear half-step --------------------
+def nonlinear_step(psi, dt_half):
+    """Perform nonlinear+potential half step:
+       psi -> exp(-i*(2/F)*(D0 - |psi|^2) * dt_half) * psi
+    """
+    # local nonlinear phase
+    phase = np.exp(-1j * coeff * (D0 - np.abs(psi)**2) * dt_half)
+    return phase * psi
+
+# -------------------- time integration --------------------
+t = 0.0
+tstart = time.time()
+snapshot_idx = 0
+
+# save initial snapshot
+np.savez_compressed(os.path.join(outdir, f"snapshot_{snapshot_idx:04d}.npz"),
+                    psi=psi, D0=D0, t=t, x=x, y=y)
+snapshot_idx += 1
+
+# arrays for plotting time series
+times = [t]
+maxamp = [np.max(np.abs(psi))]
+
+for n in range(1, nsteps+1):
+    # Strang splitting:
+    # 1) half-step nonlinear in x-space
+    psi = nonlinear_step(psi, dt/2.0)
+
+    # 2) full linear step in k-space
+    psi_hat = fftn(psi)
+    if dealias:
+        psi_hat *= filter_mask
+    psi_hat *= L_prop
+    psi = ifftn(psi_hat)
+
+    # 3) half-step nonlinear in x-space
+    psi = nonlinear_step(psi, dt/2.0)
+
+    t += dt
+
+    # diagnostics
+    if (n % nout) == 0 or n == nsteps:
+        times.append(t)
+        maxamp.append(np.max(np.abs(psi)))
+        print(f"step {n}/{nsteps}, t={t:.4f}, max|psi|={maxamp[-1]:.6f}")
+
+        # save snapshot
+        np.savez_compressed(os.path.join(outdir, f"snapshot_{snapshot_idx:04d}.npz"),
+                            psi=psi, D0=D0, t=t)
+        snapshot_idx += 1
+
+tend = time.time()
+print("Simulation finished in %.1f s" % (tend - tstart))
+
+# -------------------- simple plots --------------------
+# plot max amplitude vs time
+plt.figure(figsize=(6,4))
+plt.plot(times, maxamp, '-o', markersize=3)
+plt.xlabel('t'); plt.ylabel('max |psi|')
+plt.title('Peak amplitude vs time')
+plt.grid(True)
+plt.tight_layout()
+plt.savefig(os.path.join(outdir, "max_amp_vs_time.png"), dpi=200)
+
+# plot last snapshot amplitude
+psi_final = psi
+plt.figure(figsize=(6,5))
+plt.imshow(np.abs(psi_final)**2, extent=[0,Lx,0,Ly], origin='lower')
+plt.colorbar(label='|psi|^2')
+plt.title(f'Final |psi|^2 at t={t:.3f}')
+plt.xlabel('x'); plt.ylabel('y')
+plt.tight_layout()
+plt.savefig(os.path.join(outdir, "final_intensity.png"), dpi=200)
+
+# save final state
+np.savez_compressed(os.path.join(outdir, "final_state.npz"),
+                    psi=psi, D0=D0, t=t, times=np.array(times), maxamp=np.array(maxamp))
+
+print("Outputs saved to", outdir)
