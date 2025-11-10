@@ -1,0 +1,90 @@
+# this one uses dedalus
+
+import dedalus.public as de
+import numpy as np
+import h5py, os 
+
+#parameters
+Lx, Ly = 100.0, 100.0
+Nx, Ny = 512, 512
+F = 1
+dt = 0.002
+t_end = 5
+nout = 200
+A0 = 1
+noise_amp = 1e-3
+bathymetry_type = "gauss" #can use flat, gauss, ridge, random
+
+#domain
+coords = de.CartesianCoordinates('x', 'y')
+dist = de.Distributor(coords, dtype=np.complex128)
+x_basis = de.Fourier(coords['x'], Nx, bounds = (0,Lx), dtype = np.complex128)
+y_basis = de.Fourier(coords['y'], Ny, bounds = (0, Ly), dtype = np.complex128)
+domain = de.domain([x_basis, y_basis], grid_dtype=np.complex128)
+
+psi = dist.Field(name = 'psi')
+D0 = dist.Field(name = 'D0')
+
+x,y = domain.grids()
+X,Y = np.meshgrid(x,y, indexing='ij')
+
+#bathymetry
+Dbar = 1.0
+
+if bathymetry_type == 'flat':
+    D0 = Dbar * np.ones_like(X)
+elif bathymetry_type == 'gauss':
+    A_bump, sigma = 2.0, 5.0
+    x0, y0 = 0.5*Lx, 0.5*Ly
+    D0 = Dbar + A_bump *np.exp(-((X-x0)**2 + (Y-y0)**2)/(2*sigma**2))
+elif bathymetry_type == 'ridge':
+    m_ridge, A_ridge = 4, 0.5
+    D0 = Dbar + A_ridge*np.cos(2*np.pi*m_ridge*X/Lx)
+elif bathymetry_type == 'random':
+    rng = np.random.default_rng(1)
+    D0 = Dbar + 0.2*rng.standard_normal(X.shape)
+else:
+    raise ValueError('Unknown bathymetry type')
+
+D0_field = domain.new_field()
+D0_field['g'] = D0
+
+#problem
+problem = de.IVP(domain, variables=['psi'])
+problem.parameters['F'] = F
+problem.parameters['D0'] = D0_field
+problem.add_equation('dt(psi) + 1j*(dx(dx(psi))+dy(dy(psi)))+1j*(2/F)*(D0-abs(psi)**2)*psi = 0')
+solver = problem.build_solver(de.timesteppers.RK443)
+logger = solver.logger
+logger.info('solver built')
+
+#ic
+rng = np.random.default_rng(1234)
+noise = noise_amp*(rng.standard_normal(X.shape)+1j*rng.standard_normal(X.shape))
+psi = solver.state['psi']
+psi['g'] = A0*(1+noise)
+
+#output
+outdir = 'data/snapshots'
+os.makedirs(outdir, exist_ok = True)
+if domain.dist.comm.rank == 0:
+    with h5py.File(os.path.join(outdir, 'grids.h5'),'w') as f:
+        f['x'] = x; f['y'] = Y
+
+t, step = 0.0, 0
+while solver.ok and t < t_end:
+    solver.step(dt)
+    t = solver.sim_time
+    step += 1
+    if step % nout == 0 or solver.stop_iteration:
+        psi_g = psi['g'].copy()
+        D0_g = D0_field['g']
+        if domain.dist.comm.rank == 0:
+            fname = os.path.join(outdir, f'snap_{step:05d}.h5')
+            with h5py.File(fname, 'w') as f:
+                f['psi'] = psi_g
+                f['D0'] = D0_g
+                f.attrs['t'] = t
+        logger.info(f'output snapshot {step} t={t:.3f} max|psi|={np.abs(psi_g).max():.4f}')
+
+logger.info('simulation finished')
