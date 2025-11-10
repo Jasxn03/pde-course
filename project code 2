@@ -17,16 +17,14 @@ bathymetry_type = "gauss" #can use flat, gauss, ridge, random
 
 #domain
 coords = de.CartesianCoordinates('x', 'y')
-dist = de.Distributor(coords, dtype=np.complex128)
 x_basis = de.Fourier(coords['x'], Nx, bounds = (0,Lx), dtype = np.complex128)
 y_basis = de.Fourier(coords['y'], Ny, bounds = (0, Ly), dtype = np.complex128)
-domain = de.domain([x_basis, y_basis], grid_dtype=np.complex128)
+dist = de.Distributor(coords, dtype=np.complex128)
 
-psi = dist.Field(name = 'psi')
-D0 = dist.Field(name = 'D0')
+psi = dist.Field(name = 'psi', bases=(x_basis, y_basis))
+D0_field = dist.Field(name = 'D0', bases=(x_basis, y_basis))
 
-x,y = domain.grids()
-X,Y = np.meshgrid(x,y, indexing='ij')
+X,Y = np.meshgrid(np.linspace(0,Lx, Nx, endpoint=False),np.linspace(0,Ly, Ny, endpoint=False),indexing='ij')
 
 #bathymetry
 Dbar = 1.0
@@ -46,14 +44,16 @@ elif bathymetry_type == 'random':
 else:
     raise ValueError('Unknown bathymetry type')
 
-D0_field = domain.new_field()
 D0_field['g'] = D0
 
 #problem
-problem = de.IVP(domain, variables=['psi'])
-problem.parameters['F'] = F
-problem.parameters['D0'] = D0_field
-problem.add_equation('dt(psi) + 1j*(dx(dx(psi))+dy(dy(psi)))+1j*(2/F)*(D0-abs(psi)**2)*psi = 0')
+F_val = F
+dx = lambda A: de.Differentiate(A, X)
+dy = lambda A: de.Differentiate(A, Y)
+problem = de.IVP([psi], time = 't', )
+# problem.parameters['F'] = F
+# problem.parameters['D0'] = D0_field
+problem.add_equation('dt(psi) + 1j*(dx(dx(psi))+dy(dy(psi)))+1j*(2/F_val)*(D0_field-abs(psi)**2)*psi = 0')
 solver = problem.build_solver(de.timesteppers.RK443)
 logger = solver.logger
 logger.info('solver built')
@@ -67,7 +67,7 @@ psi['g'] = A0*(1+noise)
 #output
 outdir = 'data/snapshots'
 os.makedirs(outdir, exist_ok = True)
-if domain.dist.comm.rank == 0:
+if dist.comm.rank == 0:
     with h5py.File(os.path.join(outdir, 'grids.h5'),'w') as f:
         f['x'] = x; f['y'] = Y
 
@@ -79,7 +79,7 @@ while solver.ok and t < t_end:
     if step % nout == 0 or solver.stop_iteration:
         psi_g = psi['g'].copy()
         D0_g = D0_field['g']
-        if domain.dist.comm.rank == 0:
+        if dist.comm.rank == 0:
             fname = os.path.join(outdir, f'snap_{step:05d}.h5')
             with h5py.File(fname, 'w') as f:
                 f['psi'] = psi_g
