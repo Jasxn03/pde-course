@@ -48,12 +48,8 @@ D0_field['g'] = D0
 
 #problem
 F_val = F
-dx = lambda A: de.Differentiate(A, X)
-dy = lambda A: de.Differentiate(A, Y)
-problem = de.IVP([psi], time = 't', )
-# problem.parameters['F'] = F
-# problem.parameters['D0'] = D0_field
-problem.add_equation('dt(psi) + 1j*(dx(dx(psi))+dy(dy(psi)))+1j*(2/F_val)*(D0_field-abs(psi)**2)*psi = 0')
+problem = de.IVP([psi], time='t')
+problem.add_equation("dt(psi) + 1j*(lap(psi))+ 1j*(2/1)*(D0-abs(psi)**2)*psi = 0")
 solver = problem.build_solver(de.timesteppers.RK443)
 logger = solver.logger
 logger.info('solver built')
@@ -69,7 +65,7 @@ outdir = 'data/snapshots'
 os.makedirs(outdir, exist_ok = True)
 if dist.comm.rank == 0:
     with h5py.File(os.path.join(outdir, 'grids.h5'),'w') as f:
-        f['x'] = x; f['y'] = Y
+        f['x'] = X; f['y'] = Y
 
 t, step = 0.0, 0
 while solver.ok and t < t_end:
