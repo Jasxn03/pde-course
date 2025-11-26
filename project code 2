@@ -47,8 +47,8 @@ D0_field['g'] = D0
 
 #problem
 F_val = F
-problem = de.IVP([psi], time='t', namespace={"D0_field": D0_field})
-problem.add_equation("dt(psi) + 1j*(lap(psi)) = - 1j*(2/1)*(D0_field-abs(psi)**2)*psi")
+problem = de.IVP([psi], time='t', namespace={"D0_field": D0_field, "F_val": F_val})
+problem.add_equation("dt(psi) + 1j*(lap(psi)) = - 1j*(2/F_val)*(D0_field-abs(psi)**2)*psi")
 solver = problem.build_solver(de.RK443)
 print("solver built")
 
