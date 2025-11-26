@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from numpy.fft import fftn, ifftn, fftshift, ifftshift, fftfreq
+from scipy.integrate import simpson
 import time
 import os
 
@@ -14,9 +15,9 @@ dx = Lx / Nx
 dy = Ly / Ny
 
 # Physics params
-F = 1.0            # F parameter in the notes (choose appropriately)
+F = 1.0            # F parameter in the notes (should be order 1)
 d2 = 1.0           # not used here directly, only in derivation
-Dbar = 1.0         # base depth/density
+Dbar = 1.0       # base depth/density
 
 # Time stepping
 dt = 0.002         # time step (tune smaller if needed)
@@ -160,6 +161,7 @@ for n in range(1, nsteps+1):
 
 tend = time.time()
 print("Simulation finished in %.1f s" % (tend - tstart))
+print(r"Integral of $\psi$ over x and y:", simpson(simpson(psi, x), y)) # ok this gives 4000
 
 # -------------------- simple plots --------------------
 # plot max amplitude vs time
@@ -175,8 +177,8 @@ plt.savefig(os.path.join(outdir, "max_amp_vs_time.png"), dpi=200)
 psi_final = psi
 plt.figure(figsize=(6,5))
 plt.imshow(np.abs(psi_final)**2, extent=[0,Lx,0,Ly], origin='lower')
-plt.colorbar(label='|psi|^2')
-plt.title(f'Final |psi|^2 at t={t:.3f}')
+plt.colorbar(label=r'$|\psi|^2$')
+plt.title(r'Final $|\psi|^2$' + f'at t={t:.3f}')
 plt.xlabel('x'); plt.ylabel('y')
 plt.tight_layout()
 plt.savefig(os.path.join(outdir, "final_intensity.png"), dpi=200)
