@@ -7,8 +7,8 @@ import numpy as np
 import h5py, os 
 np.seterr(all='raise')
 
-#parameters
-Lx, Ly = 100.0, 100.0
+#parameters - we want to derive a CFL condition
+Lx, Ly = 1000, 1000
 Nx, Ny = 512, 512
 F = 1
 alpha_sq = 1
@@ -76,7 +76,7 @@ problem = de.IVP([psi_1, psi_2, psi_1_star, psi_2_star, J1, J2],
 
 # first coupled equation - using 2.16 in Darryl's notes!!!
 problem.add_equation(("1j * dt(psi_1) = 1/abs(psi_1)**2 * dot((J1 + J2), grad(psi_1))" +
-                      "- a2/2 * lap(sqrt(abs(psi_1_star * psi_1) + eps)) * psi_1 / (sqrt(abs(psi_1_star * psi_1) + eps))" +  
+                      "- a2/2 * lap(sqrt(abs(psi_1_star * psi_1) + eps)) * psi_1 / (sqrt(abs(psi_1_star * psi_1) + eps))" + 
                       "+ 1/(2 * 1j * F_val) * (abs(psi_1)**2 * psi_1 - D0_field * psi_1)"))
 # second coupled equation
 problem.add_equation(("1j * dt(psi_2) = 1/abs(psi_1)**2 * dot((J1 + J2), grad(psi_2))" +
