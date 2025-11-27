@@ -45,6 +45,11 @@ else:
 
 D0_field['g'] = D0
 
+#ic
+rng = np.random.default_rng(1234)
+noise = noise_amp*(rng.standard_normal(X.shape)+1j*rng.standard_normal(X.shape))
+psi['g'] = A0*(1+noise)
+
 #problem
 F_val = F
 problem = de.IVP([psi], time='t', namespace={"D0_field": D0_field, "F_val": F_val})
@@ -52,11 +57,6 @@ problem.add_equation("dt(psi) + 1j*(lap(psi)) = - 1j*(2/F_val)*(D0_field-abs(psi
 solver = problem.build_solver(de.RK443)
 print("solver built")
 
-#ic
-rng = np.random.default_rng(1234)
-noise = noise_amp*(rng.standard_normal(X.shape)+1j*rng.standard_normal(X.shape))
-psi = solver.state[0]
-psi['g'] = A0*(1+noise)
 
 #output
 outdir = 'data/snapshots'

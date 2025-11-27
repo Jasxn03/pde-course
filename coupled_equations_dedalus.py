@@ -39,6 +39,7 @@ D0_field = dist.Field(name="D0_field", bases=(x_basis, y_basis))
 
 X,Y = np.meshgrid(np.linspace(0,Lx, Nx, endpoint=False),np.linspace(0,Ly, Ny, endpoint=False),indexing='ij')
 
+# needed to bring initial conditions before solving
 rng = np.random.default_rng(1234)
 noise = noise_amp*(rng.standard_normal(X.shape)+1j*rng.standard_normal(X.shape))
 psi_1['g'] = A0*(1+noise)
