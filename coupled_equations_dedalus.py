@@ -1,18 +1,21 @@
 """
 Dedalus code for 2.16 of Darryl's notes
+To run in parallel do mpirun -np [# processes] python3 [this_file_name.py]
 """
+
+OMP_NUM_THREADS = 1
 
 from dedalus import public as de
 import numpy as np
 import h5py, os 
 np.seterr(all='raise')
 
-#parameters - we want to derive a CFL condition
-Lx, Ly = 1000, 1000
+# parameters - we want to derive a CFL condition
+Lx, Ly = 5000, 5000
 Nx, Ny = 512, 512
 F = 1
 alpha_sq = 1
-dt = 0.002
+dt = 0.0001
 t_end = 5
 nout = 200
 A0 = 1
@@ -39,33 +42,44 @@ D0_field = dist.Field(name="D0_field", bases=(x_basis, y_basis))
 
 X,Y = np.meshgrid(np.linspace(0,Lx, Nx, endpoint=False),np.linspace(0,Ly, Ny, endpoint=False),indexing='ij')
 
+# be parallel safe :)
+x_local = dist.local_grid(x_basis)
+y_local = dist.local_grid(y_basis)
+
 # needed to bring initial conditions before solving
 rng = np.random.default_rng(1234)
-noise = noise_amp*(rng.standard_normal(X.shape)+1j*rng.standard_normal(X.shape))
-psi_1['g'] = A0*(1+noise)
-psi_2['g'] = A0*(1+noise)
 
-#bathymetry
+gshape = psi_1['g'].shape
+gshape_2 = psi_2['g'].shape
+D0_shape = D0_field['g'].shape
+print(D0_shape)
+
+noise = noise_amp*(rng.standard_normal(gshape) + 1j*rng.standard_normal(gshape))
+noise_2 = noise_amp*(rng.standard_normal(gshape_2) + 1j*rng.standard_normal(gshape_2))
+psi_1['g'] = A0*(1 + noise)
+psi_2['g'] = A0*(1 + noise_2)
+
+# bathymetry
 Dbar = 1.0
 
 if bathymetry_type == 'flat':
-    D0 = Dbar * np.ones_like(X)
+    D0 = Dbar * np.ones([D0_shape[0], D0_shape[1]])
 elif bathymetry_type == 'gauss':
     A_bump, sigma = 2.0, 5.0
     x0, y0 = 0.5*Lx, 0.5*Ly
-    D0 = Dbar + A_bump *np.exp(-((X-x0)**2 + (Y-y0)**2)/(2*sigma**2))
+    D0 = Dbar + A_bump * np.exp(-((x_local-x0)**2 + (y_local-y0)**2)/(2*sigma**2))
 elif bathymetry_type == 'ridge':
     m_ridge, A_ridge = 4, 0.5
-    D0 = Dbar + A_ridge*np.cos(2*np.pi*m_ridge*X/Lx)
+    D0 = Dbar + A_ridge*np.cos(2*np.pi*m_ridge*x_local/Lx)
 elif bathymetry_type == 'random':
     rng = np.random.default_rng(1)
-    D0 = Dbar + 0.2*rng.standard_normal(X.shape)
+    D0 = Dbar + 0.2*rng.standard_normal(D0_shape)
 else:
     raise ValueError('Unknown bathymetry type')
 
 D0_field['g'] = D0
 
-#problem
+# problem
 F_val = F
 problem = de.IVP([psi_1, psi_2, psi_1_star, psi_2_star, J1, J2],
                  time='t', namespace={"D0_field": D0_field,
