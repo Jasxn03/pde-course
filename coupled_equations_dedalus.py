@@ -1,8 +1,12 @@
-# this one uses dedalus
+"""
+Dedalus code for 2.16 of Darryl's notes
+"""
 
 from dedalus import public as de
 import numpy as np
 import h5py, os 
+np.seterr(all='raise')
+
 #parameters
 Lx, Ly = 100.0, 100.0
 Nx, Ny = 512, 512
@@ -17,15 +21,28 @@ bathymetry_type = "flat" #can use flat, gauss, ridge, random
 
 #domain
 coords = de.CartesianCoordinates('x', 'y')
+
 x_basis = de.Fourier(coords['x'], Nx, bounds = (0,Lx), dtype = np.complex128)
 y_basis = de.Fourier(coords['y'], Ny, bounds = (0, Ly), dtype = np.complex128)
 dist = de.Distributor(coords, dtype=np.complex128)
 
 psi_1 = dist.Field(name='psi_1', bases=(x_basis, y_basis))
+psi_1_star = dist.Field(name="psi_1_star", bases=(x_basis, y_basis))
+
 psi_2 = dist.Field(name="psi_2", bases=(x_basis, y_basis))
+psi_2_star = dist.Field(name="psi_2_star", bases=(x_basis, y_basis))
+
+J1 = dist.VectorField(coords, name="J1", bases=(x_basis, y_basis))
+J2 = dist.VectorField(coords, name="J2", bases=(x_basis, y_basis))
+
 D0_field = dist.Field(name="D0_field", bases=(x_basis, y_basis))
 
 X,Y = np.meshgrid(np.linspace(0,Lx, Nx, endpoint=False),np.linspace(0,Ly, Ny, endpoint=False),indexing='ij')
+
+rng = np.random.default_rng(1234)
+noise = noise_amp*(rng.standard_normal(X.shape)+1j*rng.standard_normal(X.shape))
+psi_1['g'] = A0*(1+noise)
+psi_2['g'] = A0*(1+noise)
 
 #bathymetry
 Dbar = 1.0
@@ -49,37 +66,29 @@ D0_field['g'] = D0
 
 #problem
 F_val = F
-problem = de.IVP([psi_1, psi_2], time='t', namespace={"D0_field": D0_field, "F_val": F_val, "a2": alpha_sq})
+problem = de.IVP([psi_1, psi_2, psi_1_star, psi_2_star, J1, J2],
+                 time='t', namespace={"D0_field": D0_field,
+                                      "F_val": F_val,
+                                      "a2": alpha_sq,
+                                      "eps": 1e-10})
 
-def jacobian_str(psi_name):
-    """
-    Returns a tuple of strings: (Jx, Jy)
-    J = Im(psi* grad(psi))
-    """
-    Jx = f"(({psi_name}.H*dx({psi_name}) - dx({psi_name})*{psi_name}.H)/(2j))"
-    Jy = f"(({psi_name}.H*dy({psi_name}) - dy({psi_name})*{psi_name}.H)/(2j))"
-    return Jx, Jy
-
-J1x, J1y = jacobian_str("psi_1")
-J2x, J2y = jacobian_str("psi_2")
 
 # first coupled equation - using 2.16 in Darryl's notes!!!
-# this does not work
-problem.add_equation((f"1j * dt(psi_1) = 1/(abs(psi_1)**2) * (({J1x} + {J2x}) * dx(psi_1) + ({J1y} + {J2y}) * dy(psi_1))"
-                     "-a2/2 * lap(sqrt(psi_1.H * psi_1)) * psi_1 /(sqrt(psi_1.H * psi_1)) +"  # alpha^2/2 term
-                     "(log(psi_2/psi_2.H))/(2j * F_val) * (abs(psi_1)**2 * psi_1 - D0_field * psi_1)")) # final term
-
+problem.add_equation(("1j * dt(psi_1) = 1/abs(psi_1)**2 * dot((J1 + J2), grad(psi_1))" +
+                      "- a2/2 * lap(sqrt(abs(psi_1_star * psi_1) + eps)) * psi_1 / (sqrt(abs(psi_1_star * psi_1) + eps))" +  
+                      "+ 1/(2 * 1j * F_val) * (abs(psi_1)**2 * psi_1 - D0_field * psi_1)"))
 # second coupled equation
-problem.add_equation((f"1j * dt(psi_2) = 1/(abs(psi_1)**2) * (({J1x} + {J2x}) * dx(psi_2) + ({J1y} + {J2y}) * dy(psi_2))"
-                     "- (log(psi_2/abs(psi_2)**2))/(2j * 2 * F_val) * (abs(psi_1)**4 - 2 * D0_field * abs(psi_1)**2)")) # final term
+problem.add_equation(("1j * dt(psi_2) = 1/abs(psi_1)**2 * dot((J1 + J2), grad(psi_2))" +
+                      "- psi_2 /(abs(psi_2)**2 * 4 * 1j * F_val) * (abs(psi_1)**4 - 2 * D0_field * abs(psi_1)**2)"))
+
+# ensure jacobians etc are calculated correctly
+problem.add_equation("J1 = 1/2j * (psi_1_star * grad(psi_1) - conj(psi_1_star * grad(psi_1)))")
+problem.add_equation("J2 = 1/2j * (psi_2_star * grad(psi_2) - conj(psi_2_star * grad(psi_2)))")
+problem.add_equation("psi_1_star = abs(psi_1)**2/psi_1")
+problem.add_equation("psi_2_star = abs(psi_2)**2/psi_2")
+
 solver = problem.build_solver(de.RK443)
 print("solver built")
-
-#ic
-rng = np.random.default_rng(1234)
-noise = noise_amp*(rng.standard_normal(X.shape)+1j*rng.standard_normal(X.shape))
-psi = solver.state[0]
-psi['g'] = A0*(1+noise)
 
 #output
 outdir = 'data/snapshots'
@@ -94,14 +103,16 @@ while t < t_end:
     t = solver.sim_time
     step += 1
     if step % nout == 0 or solver.stop_iteration:
-        psi_g = psi['g'].copy()
+        psi_1_g = psi_1['g'].copy()
+        psi_2_g = psi_2['g'].copy()
         D0_g = D0_field['g']
         if dist.comm.rank == 0:
             fname = os.path.join(outdir, f'snap_{step:05d}.h5')
             with h5py.File(fname, 'w') as f:
-                f['psi'] = psi_g
+                f['psi'] = psi_1_g
                 f['D0'] = D0_g
                 f.attrs['t'] = t
-        print(f'output snapshot {step} t={t:.3f} max|psi|={np.abs(psi_g).max():.4f}')
+        print(f'output snapshot {step} t={t:.3f} max|psi_1|={np.abs(psi_1_g).max():.4f}')
+        print(f'output snapshot {step} t={t:.3f} max|psi_2|={np.abs(psi_2_g).max():.4f}')
 
 print('simulation finished')
