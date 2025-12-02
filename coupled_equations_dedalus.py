@@ -16,7 +16,7 @@ Lx, Ly = 1000, 1000
 Nx, Ny = 128, 128
 F = 1
 alpha_sq = 1
-dt = 0.0005
+dt = 0.05
 t_end = 5
 nout = 200
 A0 = 1
@@ -34,21 +34,14 @@ coords = de.CartesianCoordinates('x', 'y')
 
 x_basis = de.Fourier(coords['x'], Nx, bounds = (0,Lx), dtype = np.complex128)
 y_basis = de.Fourier(coords['y'], Ny, bounds = (0, Ly), dtype = np.complex128)
-x_basis_2 = de.Fourier(coords['x'], Nx, bounds = (0,Lx), dtype = np.float64)
-y_basis_2 = de.Fourier(coords['y'], Ny, bounds = (0, Ly), dtype = np.float64)
+
 dist = de.Distributor(coords, dtype=np.complex128)
-dist2 = de.Distributor(coords, dtype=np.float64) # for plotting 
+
 psi_1 = dist.Field(name='psi_1', bases=(x_basis, y_basis))
 psi_1_star = dist.Field(name="psi_1_star", bases=(x_basis, y_basis))
 
 psi_2 = dist.Field(name="psi_2", bases=(x_basis, y_basis))
 psi_2_star = dist.Field(name="psi_2_star", bases=(x_basis, y_basis))
-
-psi_1_mag = dist2.Field(name='psi_1_mag', bases=(x_basis_2, y_basis_2))
-psi_1_mag['g'] = np.abs(psi_1['g'])
-
-psi_2_mag = dist2.Field(name='psi_2_mag', bases=(x_basis_2, y_basis_2))
-psi_2_mag['g'] = np.abs(psi_2['g'])
 
 J1 = dist.VectorField(coords, name="J1", bases=(x_basis, y_basis))
 J2 = dist.VectorField(coords, name="J2", bases=(x_basis, y_basis))
@@ -121,8 +114,6 @@ solver = problem.build_solver(de.RK443)
 print("solver built")
 
 snapshots = solver.evaluator.add_file_handler(outdir, iter=10)
-snapshots.add_task(psi_1_mag.real, name="psi_1_mag")
-snapshots.add_task(psi_2_mag.real, name="psi_2_mag")
 snapshots.add_task(psi_1, name="psi_1")
 snapshots.add_task(psi_2, name="psi_2")
 snapshots.add_task(D0_field, name="D0")
@@ -133,10 +124,8 @@ if dist.comm.rank == 0:
 
 t, step = 0.0, 0
 while solver.proceed and t < t_end:
-    psi_1_mag['g'] = np.abs(psi_1['g'])
-    psi_2_mag['g'] = np.abs(psi_2['g'])
     solver.step(dt)
     step += 1
     t += dt
-    print(f'output snapshot {step} t={t:.3f}, max psi_1 = {np.max(abs(psi_1_mag['g']))}, max psi_2 = {np.max(abs(psi_2_mag['g']))}')
+    print(f'output snapshot {step} t={t:.3f}, max psi_1 = {np.max(abs(psi_1['g']))}, max psi_2 = {np.max(abs(psi_2['g']))}')
 print('simulation finished')
