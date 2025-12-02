@@ -1,5 +1,5 @@
 """
-Dedalus code for 2.16 of Darryl's notes
+Dedalus code for 2.11 of Darryl's notes
 To run in parallel do mpirun -np [# processes] python3 [this_file_name.py]
 """
 
@@ -9,6 +9,7 @@ from dedalus import public as de
 import numpy as np
 import h5py, os
 np.seterr(all='raise')
+
 
 # parameters - we want to derive a CFL condition
 Lx, Ly = 1000, 1000
@@ -22,7 +23,13 @@ A0 = 1
 noise_amp = 1e-3
 bathymetry_type = "flat" #can use flat, gauss, ridge, random
 
-#domain
+
+# OUTPUT - CHANGE TO YOUR FOLDER
+outdir = f'/Users/elr20/Desktop/outputs/{Nx}_{Ny}_{bathymetry_type}_{dt}/snapshots'
+os.makedirs(outdir, exist_ok=True)
+
+
+# domain
 coords = de.CartesianCoordinates('x', 'y')
 
 x_basis = de.Fourier(coords['x'], Nx, bounds = (0,Lx), dtype = np.complex128)
@@ -30,7 +37,7 @@ y_basis = de.Fourier(coords['y'], Ny, bounds = (0, Ly), dtype = np.complex128)
 x_basis_2 = de.Fourier(coords['x'], Nx, bounds = (0,Lx), dtype = np.float64)
 y_basis_2 = de.Fourier(coords['y'], Ny, bounds = (0, Ly), dtype = np.float64)
 dist = de.Distributor(coords, dtype=np.complex128)
-dist2 = de.Distributor(coords, dtype=np.float64)
+dist2 = de.Distributor(coords, dtype=np.float64) # for plotting 
 psi_1 = dist.Field(name='psi_1', bases=(x_basis, y_basis))
 psi_1_star = dist.Field(name="psi_1_star", bases=(x_basis, y_basis))
 
@@ -113,10 +120,6 @@ problem.add_equation("psi_2_star = abs(psi_2)**2/psi_2")
 solver = problem.build_solver(de.RK443)
 print("solver built")
 
-#output
-outdir = f'/Users/elr20/Desktop/outputs/{Nx}_{Ny}_{bathymetry_type}_{dt}/snapshots'
-os.makedirs(outdir, exist_ok = True)
-
 snapshots = solver.evaluator.add_file_handler(outdir, iter=10)
 snapshots.add_task(psi_1_mag.real, name="psi_1_mag")
 snapshots.add_task(psi_2_mag.real, name="psi_2_mag")
@@ -129,11 +132,11 @@ if dist.comm.rank == 0:
         f['x'] = X; f['y'] = Y
 
 t, step = 0.0, 0
-while solver.proceed:
+while solver.proceed and t < t_end:
     psi_1_mag['g'] = np.abs(psi_1['g'])
     psi_2_mag['g'] = np.abs(psi_2['g'])
     solver.step(dt)
     step += 1
     t += dt
-    print(f'output snapshot {step} t={t:.3f}')
+    print(f'output snapshot {step} t={t:.3f}, max psi_1 = {np.max(abs(psi_1_mag['g']))}, max psi_2 = {np.max(abs(psi_2_mag['g']))}')
 print('simulation finished')
