@@ -70,8 +70,12 @@ def main(filename, start, count, output):
                 data_xy = dset[index,:,:]
                 Xmesh, Ymesh, Z = abs_func(xmesh,ymesh,data_xy)
                 
-                # also plot a smooth version
-                Zsmooth = gaussian_filter(Z,sigma=5.0)
+                # plot a smooth version
+                Zsmooth = gaussian_filter(Z,sigma=5.0) # if really noisy increase sigma
+
+                # need to fix the axes limits
+                axes.set_zlim(0, 1.5) # this number is just based on the max from simulations; should be changed accordingly
+
                 # set up plot
                 ls = LightSource(315,45)
 
@@ -79,17 +83,17 @@ def main(filename, start, count, output):
                 rgb = ls.shade(Zsmooth, cmap= matplotlib.cm.gist_earth, vert_exag=0.1, blend_mode='soft')
                 surf = axes.plot_surface(Xmesh, Ymesh, Z, rstride=1, cstride=1, facecolors=rgb, linewidth=0, antialiased=False, shade=False)
                 
-                cset = axes.contour(
-                        Xmesh, Ymesh, Z,
-                        zdir='z', offset=Z.min(),
+                cset = axes.contourf(
+                        Xmesh, Ymesh, Zsmooth,
+                        zdir='z', offset=0.0,
                         cmap='viridis'
                     )
                 
-                axes.set_title(task)
-                axes.set_xlabel("x")
-                axes.set_ylabel("y")
+                axes.set_title(f'$\{task}$')
+                axes.set_xlabel(r"$x$")
+                axes.set_ylabel(r"$y$")
                 axes.set_zlabel(r"|$\psi$|")
-                axes.view_init(elev=30, azim=-60)
+                axes.view_init(elev=20, azim=45)
 
             # Add time title
             title = title_func(file['scales/sim_time'][index])
