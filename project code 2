@@ -58,7 +58,7 @@ Dbar = 1.0
 if bathymetry_type == 'flat':
     D0 = Dbar * np.ones_like(X)
 elif bathymetry_type == 'gauss':
-    A_bump, sigma = 2.0, 5.0
+    A_bump, sigma = 2.0, 200.0
     x0, y0 = 0.5*Lx, 0.5*Ly
     D0 = Dbar + A_bump *np.exp(-((X-x0)**2 + (Y-y0)**2)/(2*sigma**2))
 elif bathymetry_type == 'ridge':
