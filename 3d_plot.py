@@ -74,7 +74,7 @@ def main(filename, start, count, output):
                 Zsmooth = gaussian_filter(Z,sigma=5.0) # if really noisy increase sigma
 
                 # need to fix the axes limits
-                axes.set_zlim(0, 1.5) # this number is just based on the max from simulations; should be changed accordingly
+                axes.set_zlim(0, 1.1) # this number is just based on the max from simulations; should be changed accordingly
 
                 # set up plot
                 ls = LightSource(315,45)
