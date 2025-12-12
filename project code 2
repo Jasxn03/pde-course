@@ -1,31 +1,57 @@
-# this one uses dedalus
-
 from dedalus import public as de
 import numpy as np
-import h5py, os 
-#parameters
+import h5py, os
+import logging
+
+log = logging.getLogger("solver")
+# can turn off by commenting out if desired
+logging.basicConfig(level=logging.INFO,
+                    format="%(asctime)s - %(levelname)s - %(message)s")
+
+
+"""
+Solve the NLS equation using Dedalus
+Parameters
+----------
+- Lx, Ly: length of the x and y components of the domain (starting from 0)
+- Nx, Ny: number of gridpoints in the x and y directions
+- F: scaling factor for the |psi|^2 and D_0 terms in the NLS equation
+- dt: time step
+- t_end: end time of the simulation
+- n_out: record snapshot of psi every n_out * dt seconds
+- A0: initial condition value
+- noise_amp: add noise to the initial condition, parameter controls amplitude
+- bathymetry_type: type of bathymetry considered.
+    see below for which types are implemented
+"""
+
+# set up initial parameters
 Lx, Ly = 100.0, 100.0
 Nx, Ny = 512, 512
 F = 1
 dt = 0.002
-t_end = 5
-nout = 200
+t_end = 50
+n_out = 200
 A0 = 1
 noise_amp = 1e-3
-bathymetry_type = "flat" #can use flat, gauss, ridge, random
 
-#domain
+"Bathymetry options: {'flat', 'gauss', 'ridge', 'random'}"
+bathymetry_type = "flat"
+
+# set up the domain in Dedalus
 coords = de.CartesianCoordinates('x', 'y')
-x_basis = de.Fourier(coords['x'], Nx, bounds = (0,Lx), dtype = np.complex128)
-y_basis = de.Fourier(coords['y'], Ny, bounds = (0, Ly), dtype = np.complex128)
+x_basis = de.Fourier(coords['x'], Nx, bounds=(0, Lx), dtype=np.complex128)
+y_basis = de.Fourier(coords['y'], Ny, bounds=(0, Ly), dtype=np.complex128)
 dist = de.Distributor(coords, dtype=np.complex128)
 
 psi = dist.Field(name='psi', bases=(x_basis, y_basis))
 D0_field = dist.Field(name="D0_field", bases=(x_basis, y_basis))
 
-X,Y = np.meshgrid(np.linspace(0,Lx, Nx, endpoint=False),np.linspace(0,Ly, Ny, endpoint=False),indexing='ij')
+X, Y = np.meshgrid(np.linspace(0, Lx, Nx, endpoint=False),
+                   np.linspace(0, Ly, Ny, endpoint=False),
+                   indexing='ij')
 
-#bathymetry
+# set up the bathymetry
 Dbar = 1.0
 
 if bathymetry_type == 'flat':
@@ -45,32 +71,37 @@ else:
 
 D0_field['g'] = D0
 
-#ic
+# initialise the system at t = 0
 rng = np.random.default_rng(1234)
-noise = noise_amp*(rng.standard_normal(X.shape)+1j*rng.standard_normal(X.shape))
-psi['g'] = A0*(1+noise)
+noise = noise_amp * (rng.standard_normal(X.shape)
+                     + 1j * rng.standard_normal(X.shape))
+psi['g'] = A0 * (1 + noise)
 
-#problem
+# set up the problem in Dedalus
 F_val = F
-problem = de.IVP([psi], time='t', namespace={"D0_field": D0_field, "F_val": F_val})
+problem = de.IVP([psi], time='t',
+                 namespace={"D0_field": D0_field, "F_val": F_val})
 problem.add_equation("dt(psi) + 1j*(lap(psi)) = - 1j*(2/F_val)*(D0_field-abs(psi)**2)*psi")
 solver = problem.build_solver(de.RK443)
-print("solver built")
+log.info("solver built")
 
 
-#output
+# make the output directory
 outdir = 'data/snapshots'
-os.makedirs(outdir, exist_ok = True)
+os.makedirs(outdir, exist_ok=True)
 if dist.comm.rank == 0:
-    with h5py.File(os.path.join(outdir, 'grids.h5'),'w') as f:
-        f['x'] = X; f['y'] = Y
+    with h5py.File(os.path.join(outdir, 'grids.h5'), 'w') as f:
+        f['x'] = X
+        f['y'] = Y
 
+# solve the problem
 t, step = 0.0, 0
 while t < t_end:
     solver.step(dt)
     t = solver.sim_time
     step += 1
-    if step % nout == 0 or solver.stop_iteration:
+    if step % n_out == 0 or solver.stop_iteration:
+        # only write every n_out snapshots
         psi_g = psi['g'].copy()
         D0_g = D0_field['g']
         if dist.comm.rank == 0:
@@ -79,6 +110,6 @@ while t < t_end:
                 f['psi'] = psi_g
                 f['D0'] = D0_g
                 f.attrs['t'] = t
-        print(f'output snapshot {step} t={t:.3f} max|psi|={np.abs(psi_g).max():.4f}')
-
-print('simulation finished')
+        log.info((f'output snapshot {step} t={t:.3f},' /
+                 f'max|psi|={np.abs(psi_g).max():.4f}'))
+log.info('simulation finished')
