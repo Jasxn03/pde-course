@@ -3,11 +3,12 @@ From Dedalus - https://github.com/DedalusProject/dedalus/blob/master/examples/iv
 Plot 2D cartesian snapshots.
 
 Usage:
-    plot_snapshots.py <files>... [--output=<dir>]
+    make_file_readable.py <files>... [--output=<dir>]
 
 Options:
     --output=<dir>  Output directory [default: ./frames]
 
+Change the type of plot function in the main function if you want to use real / imag, default is absolute
 """
 
 import h5py
@@ -35,14 +36,14 @@ def main(filename, start, count, output):
         print(data.shape)
         print(data[0, 0])
         return xmesh, ymesh, np.abs(data)
-    
+
     def real_func(xmesh, ymesh, data):
         print(xmesh.shape)
         print(ymesh.shape)
         print(data.shape)
         print(data[0, 0])
         return xmesh, ymesh, np.real(data)
-    
+
     def imag_func(xmesh, ymesh, data):
         print(xmesh.shape)
         print(ymesh.shape)
