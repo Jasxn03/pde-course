@@ -2,6 +2,7 @@ from dedalus import public as de
 import numpy as np
 import h5py, os
 import logging
+import matplotlib.pyplot as plt
 
 log = logging.getLogger("solver")
 # can turn off by commenting out if desired
@@ -100,10 +101,24 @@ while t < t_end:
     solver.step(dt)
     t = solver.sim_time
     step += 1
-    if step % n_out == 0 or solver.stop_iteration:
-        # only write every n_out snapshots
+    if step % n_out == 0 or solver.stop_iteration or t in [10, 20, 30]:
         psi_g = psi['g'].copy()
         D0_g = D0_field['g']
+        if t in [10, 20, 30]:
+            # plot at time 10, 20, 30
+            fig, ax1 = plt.subplots(nrows=1, ncols=1, constrained_layout=True)
+            vmin = 0.9
+            vmax = 1.1
+            im1 = ax1.imshow(np.abs(psi_g.data).T, vmin=vmin, vmax=vmax,
+                             origin="lower", extent=[0, Lx, 0, Ly])
+
+            ax1.set_xticks(np.linspace(0, Lx, 6))
+            ax1.set_yticks(np.linspace(0, Ly, 6))
+            ax1.set_title(rf"$|\psi|$ at t={t}", fontsize=24)
+
+            cbar = fig.colorbar(im1, ax=ax1, location="right")
+            plt.savefig(outdir + f"/NLS_plot_at_{t}_abs.pdf")
+
         if dist.comm.rank == 0:
             fname = os.path.join(outdir, f'snap_{step:05d}.h5')
             with h5py.File(fname, 'w') as f:
@@ -112,4 +127,5 @@ while t < t_end:
                 f.attrs['t'] = t
         log.info((f'output snapshot {step} t={t:.3f},' /
                  f'max|psi|={np.abs(psi_g).max():.4f}'))
+
 log.info('simulation finished')
