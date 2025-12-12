@@ -1,9 +1,8 @@
 # this one uses dedalus
 
-import dedalus.public as de
+from dedalus import public as de
 import numpy as np
 import h5py, os 
-
 #parameters
 Lx, Ly = 100.0, 100.0
 Nx, Ny = 512, 512
@@ -13,7 +12,7 @@ t_end = 5
 nout = 200
 A0 = 1
 noise_amp = 1e-3
-bathymetry_type = "gauss" #can use flat, gauss, ridge, random
+bathymetry_type = "flat" #can use flat, gauss, ridge, random
 
 #domain
 coords = de.CartesianCoordinates('x', 'y')
@@ -21,8 +20,8 @@ x_basis = de.Fourier(coords['x'], Nx, bounds = (0,Lx), dtype = np.complex128)
 y_basis = de.Fourier(coords['y'], Ny, bounds = (0, Ly), dtype = np.complex128)
 dist = de.Distributor(coords, dtype=np.complex128)
 
-psi = dist.Field(name = 'psi', bases=(x_basis, y_basis))
-D0_field = dist.Field(name = 'D0', bases=(x_basis, y_basis))
+psi = dist.Field(name='psi', bases=(x_basis, y_basis))
+D0_field = dist.Field(name="D0_field", bases=(x_basis, y_basis))
 
 X,Y = np.meshgrid(np.linspace(0,Lx, Nx, endpoint=False),np.linspace(0,Ly, Ny, endpoint=False),indexing='ij')
 
@@ -46,19 +45,18 @@ else:
 
 D0_field['g'] = D0
 
-#problem
-F_val = F
-problem = de.IVP([psi], time='t')
-problem.add_equation("dt(psi) + 1j*(lap(psi))+ 1j*(2/1)*(D0-abs(psi)**2)*psi = 0")
-solver = problem.build_solver(de.timesteppers.RK443)
-logger = solver.logger
-logger.info('solver built')
-
 #ic
 rng = np.random.default_rng(1234)
 noise = noise_amp*(rng.standard_normal(X.shape)+1j*rng.standard_normal(X.shape))
-psi = solver.state['psi']
 psi['g'] = A0*(1+noise)
+
+#problem
+F_val = F
+problem = de.IVP([psi], time='t', namespace={"D0_field": D0_field, "F_val": F_val})
+problem.add_equation("dt(psi) + 1j*(lap(psi)) = - 1j*(2/F_val)*(D0_field-abs(psi)**2)*psi")
+solver = problem.build_solver(de.RK443)
+print("solver built")
+
 
 #output
 outdir = 'data/snapshots'
@@ -68,7 +66,7 @@ if dist.comm.rank == 0:
         f['x'] = X; f['y'] = Y
 
 t, step = 0.0, 0
-while solver.ok and t < t_end:
+while t < t_end:
     solver.step(dt)
     t = solver.sim_time
     step += 1
@@ -81,6 +79,6 @@ while solver.ok and t < t_end:
                 f['psi'] = psi_g
                 f['D0'] = D0_g
                 f.attrs['t'] = t
-        logger.info(f'output snapshot {step} t={t:.3f} max|psi|={np.abs(psi_g).max():.4f}')
+        print(f'output snapshot {step} t={t:.3f} max|psi|={np.abs(psi_g).max():.4f}')
 
-logger.info('simulation finished')
+print('simulation finished')
