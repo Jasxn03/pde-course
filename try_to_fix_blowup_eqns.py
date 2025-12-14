@@ -2,7 +2,7 @@
 Dedalus code for 2.11 of Darryl's notes
 To run in parallel do mpirun -np [# processes] python3 [this_file_name.py]
 
-I am just going to use equation (2.11) from the newest set of notes.
+2.11 and 2.12 from NEWEST notes (14-12-25)
 """
 
 OMP_NUM_THREADS = 1
@@ -18,16 +18,16 @@ Lx, Ly = 1000, 1000
 Nx, Ny = 128, 128
 F = 1 # do not change - set by problem
 alpha_sq = 1 # do not change
-dt = 0.025
-t_end = 50
+dt = 0.001
+t_end = 100
 nout = 200
 A0 = 1
 noise_amp = 1e-3
-bathymetry_type = "ridge" #can use flat, gauss, ridge, random
+bathymetry_type = "flat" #can use flat, gauss, ridge, random
 
 
 # OUTPUT - CHANGE TO YOUR FOLDER
-outdir = f'/Users/ntj21/Desktop/outputs/{Nx}_{Ny}_{bathymetry_type}_{dt}/snapshots'
+outdir = f'/Users/ntj21/Desktop/outputs_neweqn/{Nx}_{Ny}_{bathymetry_type}_{dt}/snapshots'
 os.makedirs(outdir, exist_ok=True)
 
 # domain
@@ -79,7 +79,7 @@ Dbar = 1.0
 if bathymetry_type == 'flat':
     D0 = Dbar * np.ones([D0_shape[0], D0_shape[1]])
 elif bathymetry_type == 'gauss':
-    A_bump, sigma = 2.0, 200.0 # originally sigma was 5, changed so bump isnt so narrow, gets rid of underflow error
+    A_bump, sigma = 2.0, 100.0 # originally sigma was 5, changed so bump isnt so narrow, gets rid of underflow error
     x0, y0 = 0.5*Lx, 0.5*Ly
     D0 = Dbar + A_bump * np.exp(-((x_local-x0)**2 + (y_local-y0)**2)/(2*sigma**2))
 elif bathymetry_type == 'ridge':
@@ -102,20 +102,25 @@ problem = de.IVP([psi_1, psi_2, psi_1_star, psi_2_star, J1, J2],
                                       "a2": alpha_sq,
                                       "eps": 1e-10})
 
-
-# first coupled equation - using 2.16 in Darryl's notes!!!
-problem.add_equation(("1j * dt(psi_1) = 1/(abs(psi_1)+eps)**2 * dot((J1 + J2), grad(psi_1))" +
-                      "- a2/2 * lap(sqrt(abs(psi_1_star * psi_1))) * psi_1 / (sqrt(psi_1_star * psi_1 + eps))" + 
-                      "+ abs(psi_2)**2/(2 * F_val) * psi_1"))
-# second coupled equation
-problem.add_equation(("1j * dt(psi_2) = 1/(abs(psi_1)+eps)**2 * dot((J1 + J2), grad(psi_2))" +
-                      "+ psi_2 /(2 * F_val) * (abs(psi_1)**2 - 2 * D0_field)"))
-
-# ensure jacobians etc are calculated correctly
+# substitutions
 problem.add_equation("J1 = 1/(2j) * (psi_1_star * grad(psi_1) - conj(psi_1_star * grad(psi_1)))")
 problem.add_equation("J2 = 1/(2j) * (psi_2_star * grad(psi_2) - conj(psi_2_star * grad(psi_2)))")
 problem.add_equation("psi_1_star = conj(psi_1)")
 problem.add_equation("psi_2_star = conj(psi_2)")
+
+# first coupled equation - 2.12
+problem.add_equation((
+                     "1j*dt(psi_1) = " +
+                     "- 1/(psi_1_star*psi_1 + eps) * dot((J1 + J2), grad(psi_1)) "  +
+                     "- dot((J1 + J2), (J1 + J2)) / (2*(psi_1_star*psi_1)**2 + eps) * psi_1 " +
+                     "- a2/2 * lap(sqrt(conj(psi_1)*psi_1)) * psi_1 / (sqrt(conj(psi_1)*psi_1) + eps)" +
+                     "+ conj(psi_2)*psi_2/(2*F_val) * psi_1"
+                    ))
+# second coupled equation - 2.12
+problem.add_equation(("1j * dt(psi_2) = -1/(psi_1_star*psi_1 + eps) * dot((J1 + J2), grad(psi_2))" +
+                      "+ psi_2 /(2 * F_val) * (psi_1*psi_1_star - 2 * D0_field)")) # |z|^2=z^*z
+
+
 
 
 solver = problem.build_solver(de.SBDF2)
